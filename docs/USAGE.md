@@ -20,10 +20,10 @@ If you see something like `Python 3.x.x` you are ready. Otherwise download Pytho
 
 ```
 desk-tools/
-├── g1_5/                    <- grades 1-5 (MTW / TFS tracks)
+├── g1_5/                    <- grades 1-5 (Track A / Track B)
 │   ├── CSV/                 <- put CSV files here
 │   └── generate_summary.py
-├── g6/                      <- grade 6 (E / K tracks)
+├── g6/                      <- grade 6 (Track 1 / Track 2)
 │   ├── CSV/                 <- put CSV files here
 │   └── generate_summary.py
 └── analyze_cutlines.py      <- optional: propose cutlines from a summary
@@ -90,7 +90,7 @@ Edit the `SETTINGS` block at the top of each `generate_summary.py`:
 | `START_CUTOFF` | `None` | e.g. `datetime(2026, 1, 26)`: students whose first score is on or after this date are excluded. `None` disables the filter. |
 | `PARTICIP_WEIGHT` / `ACADEMIC_WEIGHT` | `0.1` / `0.9` | Weight of the `Particip` column versus all other subjects in the total average. |
 | `PARTICIP_COL` | `"Particip"` | Header of the participation column. If the CSV has no such column, the total is just the academic average. |
-| `JU2_WEIGHTS` (g6 only) | `{"E": 0.6, "K": 0.4}` | Weight of the E and K track totals for students in both tracks. |
+| `TRACK_WEIGHTS` (g6 only) | `{TRACK_1: 0.6, TRACK_2: 0.4}` | Weight of the Track 1 and Track 2 totals for students in both tracks. |
 | `LV_CUTLINES` | `{2: 80, 3: 70, 4: 60}` | Cutline per level. A total average of 80 or more means Lv2, 70 or more Lv3, 60 or more Lv4, below that "P". **These are placeholders; set them for your institution.** |
 
 ---
@@ -100,22 +100,22 @@ Edit the `SETTINGS` block at the top of each `generate_summary.py`:
 Students are grouped into sections:
 
 **Grade 6 (g6):**
-- **주2**: students in both the English-track (E) and Korean-track (K) class (E 60% + K 40% weighted total)
-- **주1 E**: E-track class only
-- **주1 K**: K-track class only
+- **주2**: students in both a Track 1 and a Track 2 class (Track 1 60% + Track 2 40% weighted total)
+- **주1 Track 1**: Track 1 class only
+- **주1 Track 2**: Track 2 class only
 
 **Grades 1-5 (g1_5):**
-- **주2**: students in both an MTW (Mon/Tue/Wed) and a TFS (Thu/Fri/Sat) class
-- **주1 MTW**: MTW class only
-- **주1 TFS**: TFS class only
+- **주2**: students in both a Track A (Mon/Tue/Wed) and a Track B (Thu/Fri/Sat) class
+- **주1 Track A**: Track A class only
+- **주1 Track B**: Track B class only
 
 Within each section students are sorted by total average, highest first.
 
 How the track is detected:
-- g1_5: from the weekday code in the class name, e.g. `G3-21M(TeacherA)` is MTW and `G3-21TH(TeacherB)` is TFS. Codes M / TU / W are MTW, TH / F / SA are TFS.
-- g6: a class name starting with `[E]` is E; otherwise the tag in parentheses decides -- ASCII letters mean E, Korean means K.
+- g1_5: from the weekday code in the class name, e.g. `G3-21M(TeacherA)` is Track A and `G3-21TH(TeacherB)` is Track B. Codes M / TU / W are Track A, TH / F / SA are Track B.
+- g6: a class name starting with `[E]` is Track 1; otherwise the tag in parentheses decides -- ASCII letters mean Track 1, Korean means Track 2.
 
-How the current Level is read: the digit right after `G<grade>-` in the class name (`G3-21M` is level 2). A tag in the student's name overrides it: `L3` sets the level, `(P)` marks the pre-level, and for g6 `E2K3` (or `K3E2`), `E3`, `K2` set per-track levels. A trailing `주1` and any `*` are removed from the displayed name.
+How the current Level is read: the digit right after `G<grade>-` in the class name (`G3-21M` is level 2). A tag in the student's name overrides it: `L3` sets the level, `(P)` marks the pre-level, and for g6 `E2K3` (or `K3E2`), `E3`, `K2` set per-track levels (the `E` tag refers to Track 1, the `K` tag to Track 2). A trailing `주1` and any `*` are removed from the displayed name.
 
 ---
 

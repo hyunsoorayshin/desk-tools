@@ -1,5 +1,5 @@
 """
-Grade summary generator -- grades 1-5 variant (MTW / TFS tracks).
+Grade summary generator -- grades 1-5 variant (Track A / Track B).
 
 Reads every ``*.csv`` in a CSV directory (default: ``CSV/`` next to this
 script).  Each file is a grade-management export with the columns
@@ -16,8 +16,8 @@ False).  Same-week duplicate rows are dropped and listed in
 
 Class-name convention (only the shape matters, the teacher token is free
 text): ``G<grade>-<level><section><DAY>(<teacher>)``, e.g.
-``G3-21M(TeacherA)``.  The DAY code decides the track: M / TU / W -> MTW,
-TH / F / SA -> TFS.  The digit right after the dash is the class level.
+``G3-21M(TeacherA)``.  The DAY code decides the track: M / TU / W -> Track A,
+TH / F / SA -> Track B.  The digit right after the dash is the class level.
 
 Student-name suffix conventions: ``L3`` overrides the level, ``(P)`` marks
 the pre-level, a trailing ``주1`` (once-a-week) tag is stripped for display.
@@ -35,6 +35,10 @@ from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
+# Display names of the two tracks (used in output columns and group labels)
+TRACK_A = "Track A"   # classes held on M / TU / W
+TRACK_B = "Track B"   # classes held on TH / F / SA
+
 ### ====== SETTINGS ====== ###
 # All numbers below are PLACEHOLDERS.  Set them per institution.
 LEVELING = False               # True: apply cutlines, False: every Status is "PENDING"
@@ -47,17 +51,19 @@ PARTICIP_COL = "Particip"      # Header of the participation column (if present)
 # Placeholder cutlines: total average >= value -> that level; below Lv4 -> "P".
 # "ju2" (주2) = enrolled in both tracks (twice a week); "ju1" (주1) = one track only.
 LV_CUTLINES = {
-    "ju2":     {2: 80, 3: 70, 4: 60},  # both tracks, combined total
-    "MTW_ju1": {2: 80, 3: 70, 4: 60},  # MTW-only students
-    "TFS_ju1": {2: 80, 3: 70, 4: 60},  # TFS-only students
+    "ju2":        {2: 80, 3: 70, 4: 60},  # both tracks, combined total
+    "trackA_ju1": {2: 80, 3: 70, 4: 60},  # Track A-only students
+    "trackB_ju1": {2: 80, 3: 70, 4: 60},  # Track B-only students
 }
 ### ======================== ###
 
 META_COLS = {"반명", "원생명", "시험일"}  # Non-subject columns in the CSV
 
 # Day code -> track
-MTW_DAYS = {"M", "TU", "W"}
-TFS_DAYS = {"TH", "F", "SA"}
+TRACK_A_DAYS = {"M", "TU", "W"}
+TRACK_B_DAYS = {"TH", "F", "SA"}
+# Track -> cutline set for single-track students
+TRACK_CUTLINE_KEY = {TRACK_A: "trackA_ju1", TRACK_B: "trackB_ju1"}
 
 
 def round2(value):
@@ -66,15 +72,15 @@ def round2(value):
 
 
 def get_class_type(class_name):
-    """Return 'MTW' or 'TFS' from the day code in the class name, else None."""
+    """Return TRACK_A or TRACK_B from the day code in the class name, else None."""
     m = re.search(r"G\d+-\d+([A-Z]+)\(", class_name)
     if not m:
         return None
     day = m.group(1)
-    if day in MTW_DAYS:
-        return "MTW"
-    if day in TFS_DAYS:
-        return "TFS"
+    if day in TRACK_A_DAYS:
+        return TRACK_A
+    if day in TRACK_B_DAYS:
+        return TRACK_B
     return None
 
 
@@ -285,7 +291,7 @@ def process_file(input_file, out_dir):
     summary = []
     for name in student_scores:
         class_types = []
-        for ct in ["MTW", "TFS"]:
+        for ct in [TRACK_A, TRACK_B]:
             key = (name, ct)
             if key in dates_by_type and len(dates_by_type[key]) >= MIN_TESTS:
                 class_types.append(ct)
@@ -300,25 +306,25 @@ def process_file(input_file, out_dir):
         display_name = display_name.replace("*", "").strip()
 
         if ju == 2:
-            mtw_key, tfs_key = (name, "MTW"), (name, "TFS")
-            _, mtw_class = latest_class_by_type[mtw_key]
-            _, tfs_class = latest_class_by_type[tfs_key]
-            class_display = f"{mtw_class} / {tfs_class}"
-            mtw_dates = len(dates_by_type[mtw_key])
-            tfs_dates = len(dates_by_type[tfs_key])
-            test_count = f"MTW{mtw_dates}/TFS{tfs_dates}"
+            a_key, b_key = (name, TRACK_A), (name, TRACK_B)
+            _, a_class = latest_class_by_type[a_key]
+            _, b_class = latest_class_by_type[b_key]
+            class_display = f"{a_class} / {b_class}"
+            a_dates = len(dates_by_type[a_key])
+            b_dates = len(dates_by_type[b_key])
+            test_count = f"{TRACK_A}: {a_dates} / {TRACK_B}: {b_dates}"
 
-            _, mtw_total = calc_avgs(scores_by_type[mtw_key], subject_cols)
-            _, tfs_total = calc_avgs(scores_by_type[tfs_key], subject_cols)
+            _, a_total = calc_avgs(scores_by_type[a_key], subject_cols)
+            _, b_total = calc_avgs(scores_by_type[b_key], subject_cols)
 
             # Pool the raw scores of both tracks for the combined subject averages and total
             combined_scores = defaultdict(list)
             for col in subject_cols:
-                combined_scores[col].extend(scores_by_type[mtw_key].get(col, []))
-                combined_scores[col].extend(scores_by_type[tfs_key].get(col, []))
+                combined_scores[col].extend(scores_by_type[a_key].get(col, []))
+                combined_scores[col].extend(scores_by_type[b_key].get(col, []))
             subject_avgs, combined_total = calc_avgs(combined_scores, subject_cols)
 
-            level = get_level(name, mtw_class, "MTW")
+            level = get_level(name, a_class, TRACK_A)
             status = get_status(level, combined_total, "ju2")
 
             summary.append({
@@ -328,8 +334,8 @@ def process_file(input_file, out_dir):
                 "Status": status,
                 "주": ju,
                 **subject_avgs,
-                "MTW Average": mtw_total,
-                "TFS Average": tfs_total,
+                f"{TRACK_A} Average": a_total,
+                f"{TRACK_B} Average": b_total,
                 "Total Average": combined_total,
                 "Test Count": test_count,
             })
@@ -340,7 +346,7 @@ def process_file(input_file, out_dir):
             level = get_level(name, latest_class, ct)
             num_dates = len(dates_by_type[key])
             subject_avgs, total_avg = calc_avgs(scores_by_type[key], subject_cols)
-            status = get_status(level, total_avg, f"{ct}_ju1")
+            status = get_status(level, total_avg, TRACK_CUTLINE_KEY[ct])
 
             summary.append({
                 "반명": latest_class,
@@ -349,8 +355,8 @@ def process_file(input_file, out_dir):
                 "Status": status,
                 "주": ju,
                 **subject_avgs,
-                "MTW Average": "",
-                "TFS Average": "",
+                f"{TRACK_A} Average": "",
+                f"{TRACK_B} Average": "",
                 "Total Average": total_avg,
                 "Test Count": num_dates,
             })
@@ -359,18 +365,18 @@ def process_file(input_file, out_dir):
         if row["주"] == 2:
             return 0
         ct = get_class_type(row["반명"])
-        return 0 if ct == "MTW" else 1
+        return 0 if ct == TRACK_A else 1
 
     summary.sort(key=lambda r: (r["주"], class_type_key(r), -r["Total Average"]))
 
     ju2_rows = [r for r in summary if r["주"] == 2]
-    ju1_mtw_rows = [r for r in summary if r["주"] == 1 and get_class_type(r["반명"]) == "MTW"]
-    ju1_tfs_rows = [r for r in summary if r["주"] == 1 and get_class_type(r["반명"]) == "TFS"]
+    ju1_a_rows = [r for r in summary if r["주"] == 1 and get_class_type(r["반명"]) == TRACK_A]
+    ju1_b_rows = [r for r in summary if r["주"] == 1 and get_class_type(r["반명"]) == TRACK_B]
 
     base_name = os.path.splitext(os.path.basename(input_file))[0]
     safe_name = re.sub(r'[<>:"/\\|?*]', "_", base_name)
     output_file = os.path.join(out_dir, f"{safe_name}_summary.csv")
-    output_cols = ["반명", "원생명", "Level", "Status", "주", "Test Count"] + subject_cols + ["MTW Average", "TFS Average", "Total Average"]
+    output_cols = ["반명", "원생명", "Level", "Status", "주", "Test Count"] + subject_cols + [f"{TRACK_A} Average", f"{TRACK_B} Average", "Total Average"]
     empty_row = {col: "" for col in output_cols}
 
     with open(output_file, "w", encoding="utf-8-sig", newline="") as f:
@@ -381,13 +387,13 @@ def process_file(input_file, out_dir):
             writer.writerow({**empty_row, "반명": f"=== 주2 ({len(ju2_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['ju2'])}"})
             writer.writerows(ju2_rows)
 
-        if ju1_mtw_rows:
-            writer.writerow({**empty_row, "반명": f"=== 주1 MTW ({len(ju1_mtw_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['MTW_ju1'])}"})
-            writer.writerows(ju1_mtw_rows)
+        if ju1_a_rows:
+            writer.writerow({**empty_row, "반명": f"=== 주1 {TRACK_A} ({len(ju1_a_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['trackA_ju1'])}"})
+            writer.writerows(ju1_a_rows)
 
-        if ju1_tfs_rows:
-            writer.writerow({**empty_row, "반명": f"=== 주1 TFS ({len(ju1_tfs_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['TFS_ju1'])}"})
-            writer.writerows(ju1_tfs_rows)
+        if ju1_b_rows:
+            writer.writerow({**empty_row, "반명": f"=== 주1 {TRACK_B} ({len(ju1_b_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['trackB_ju1'])}"})
+            writer.writerows(ju1_b_rows)
 
     print(f"  -> {len(summary)} students written to {os.path.basename(output_file)}")
     return duplicates
@@ -411,7 +417,7 @@ def write_duplicate_report(all_duplicates, out_dir):
 
 def main(argv=None):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    parser = argparse.ArgumentParser(description="Summarise grade-export CSVs (grades 1-5, MTW/TFS tracks).")
+    parser = argparse.ArgumentParser(description="Summarise grade-export CSVs (grades 1-5, Track A / Track B).")
     parser.add_argument("--csv-dir", default=os.path.join(script_dir, "CSV"),
                         help="directory containing the input *.csv files (default: CSV/ next to this script)")
     parser.add_argument("--out-dir", default=script_dir,

@@ -4,8 +4,8 @@ Standard-library Python CLI scripts that turn a grade-management system's CSV ex
 
 | Variant | Tracks | How the track is detected | Combined total for two-track students |
 |---------|--------|---------------------------|----------------------------------------|
-| `g1_5/` (grades 1-5) | MTW vs TFS | weekday code in the class name (`G3-21M(...)` vs `G3-21TH(...)`) | scores of both tracks pooled |
-| `g6/` (grade 6) | E vs K | `[E]` prefix, or ASCII vs Korean teacher tag in the class name | E 60% + K 40% |
+| `g1_5/` (grades 1-5) | Track A vs Track B | weekday code in the class name (`G3-21M(...)` is Track A, `G3-21TH(...)` is Track B) | scores of both tracks pooled |
+| `g6/` (grade 6) | Track 1 vs Track 2 | `[E]` prefix or ASCII teacher tag = Track 1, Korean teacher tag = Track 2 | Track 1 60% + Track 2 40% |
 
 A Korean end-user manual for staff who do not program is in `docs/USAGE.ko.md` (English: `docs/USAGE.md`).
 
@@ -62,16 +62,16 @@ Edit the `SETTINGS` block at the top of each `generate_summary.py`.
 | `START_CUTOFF` | `None` | `datetime(...)`: students whose first score is on or after this date are excluded. `None` disables it. |
 | `PARTICIP_WEIGHT` / `ACADEMIC_WEIGHT` | `0.1` / `0.9` | Weight of the participation column vs. the other subjects in the total. Set to `0` / `1.0` to ignore participation weighting. |
 | `PARTICIP_COL` | `"Particip"` | Header of the participation column; if absent the total is just the academic average. |
-| `JU2_WEIGHTS` (g6 only) | `{"E": 0.6, "K": 0.4}` | Track weights for students in both tracks. |
+| `TRACK_WEIGHTS` (g6 only) | `{TRACK_1: 0.6, TRACK_2: 0.4}` | Track weights for students in both tracks. |
 | `LV_CUTLINES` | `{2: 80, 3: 70, 4: 60}` per group | Placeholder thresholds; total average >= value gives that level, below Lv4 gives P. Separate sets for two-track students and each single track. |
 
 Naming conventions the parsers rely on (only the shape matters; names are free text):
 
-- Class: `G<grade>-<level><section><DAY>(<teacher>)`, e.g. `G3-21M(TeacherA)`. The digit after the dash is the class level. g1_5 reads the DAY code (M / TU / W = MTW, TH / F / SA = TFS); g6 reads `[E]` or whether the parenthesised tag is ASCII.
-- Student name suffixes: `L3` (level override), `(P)` (below-Lv4 / probation marker), `주1` (once-a-week tag, stripped for display); g6 also `E2K3` / `K3E2` / `E3` / `K2` (per-track level).
+- Class: `G<grade>-<level><section><DAY>(<teacher>)`, e.g. `G3-21M(TeacherA)`. The digit after the dash is the class level. g1_5 reads the DAY code (M / TU / W = Track A, TH / F / SA = Track B); g6 reads `[E]` or whether the parenthesised tag is ASCII (Track 1) or not (Track 2).
+- Student name suffixes: `L3` (level override), `(P)` (below-Lv4 / probation marker), `주1` (once-a-week tag, stripped for display); g6 also `E2K3` / `K3E2` / `E3` / `K2` (per-track level; the `E` tag refers to Track 1, the `K` tag to Track 2).
 - "주1 / 주2" in the output means enrolled in one track / both tracks (once / twice a week).
 
-Averaging, for the record: g1_5 averages each subject (2 dp, round-half-up like Excel), takes the mean of the academic subject averages, and blends it with the participation average by the weights above. g6 pools all academic scores of a track, blends with participation, and then weights the E and K track totals 60/40 for two-track students.
+Averaging, for the record: g1_5 averages each subject (2 dp, round-half-up like Excel), takes the mean of the academic subject averages, and blends it with the participation average by the weights above. g6 pools all academic scores of a track, blends with participation, and then weights the Track 1 and Track 2 totals 60/40 for two-track students.
 
 ## Repository layout
 
@@ -87,10 +87,10 @@ desk-tools/
 │   ├── USAGE.md                 end-user manual (English)
 │   └── USAGE.ko.md              end-user manual (Korean)
 ├── g1_5/
-│   ├── generate_summary.py      grades 1-5, MTW / TFS tracks
+│   ├── generate_summary.py      grades 1-5, Track A / Track B
 │   └── CSV/sample_grades.csv    synthetic input
 └── g6/
-    ├── generate_summary.py      grade 6, E / K tracks
+    ├── generate_summary.py      grade 6, Track 1 / Track 2
     └── CSV/sample_grades.csv    synthetic input
 ```
 

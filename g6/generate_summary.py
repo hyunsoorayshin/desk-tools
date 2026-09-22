@@ -1,5 +1,5 @@
 """
-Grade summary generator -- grade 6 variant (E / K tracks).
+Grade summary generator -- grade 6 variant (Track 1 / Track 2).
 
 Reads every ``*.csv`` in a CSV directory (default: ``CSV/`` next to this
 script).  Each file is a grade-management export with the columns
@@ -11,20 +11,22 @@ changes.
 
 All input files are pooled into ONE summary: ``<name>_summary.csv`` when
 there is a single input file, ``combined_summary.csv`` otherwise.  Rows are
-per student with subject averages, an E average, a K average, a weighted
-total (E 60 / K 40 by default), the current Level and a Status verdict
-(UP / STAY / DOWN / P, or PENDING while ``LEVELING`` is False).  Same-week
-duplicate rows are dropped and listed in ``duplicate_entries.md``.
+per student with subject averages, a Track 1 average, a Track 2 average, a
+weighted total (Track 1 60 / Track 2 40 by default), the current Level and a
+Status verdict (UP / STAY / DOWN / P, or PENDING while ``LEVELING`` is
+False).  Same-week duplicate rows are dropped and listed in
+``duplicate_entries.md``.
 
-Track detection (E = English-track class, K = Korean-track class): a class
-name starting with ``[E]`` is E; otherwise the token in parentheses (the
-teacher tag) decides: ASCII -> E, anything else -> K.  E.g.
-``[E]G6-31M(TeacherA)`` and ``G6-32TH(TeacherB)`` are E, ``G6-31M(교사A)`` is K.
-The digit right after ``G6-`` is the class level.
+Track detection: a class name starting with ``[E]`` is Track 1; otherwise the
+token in parentheses (the teacher tag) decides: ASCII -> Track 1, anything
+else -> Track 2.  E.g. ``[E]G6-31M(TeacherA)`` and ``G6-32TH(TeacherB)`` are
+Track 1, ``G6-31M(교사A)`` is Track 2.  The digit right after ``G6-`` is the
+class level.
 
-Student-name suffix conventions handled by ``get_level``:
-``E2K3`` / ``K3E2`` (separate levels per track), ``E3`` or ``K2`` (one track),
-``L3`` (both tracks), ``(P)`` (pre-level), trailing ``주1`` (once-a-week) tag.
+Student-name suffix conventions handled by ``get_level`` (the ``E`` tag
+refers to Track 1, the ``K`` tag to Track 2): ``E2K3`` / ``K3E2`` (separate
+levels per track), ``E3`` or ``K2`` (one track), ``L3`` (both tracks), ``(P)``
+(pre-level), trailing ``주1`` (once-a-week) tag.
 
 Standard library only.  Python 3.9+.
 """
@@ -39,26 +41,32 @@ from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
+# Display names of the two tracks (used in output columns and group labels)
+TRACK_1 = "Track 1"   # classes with an [E] prefix or an ASCII teacher tag
+TRACK_2 = "Track 2"   # classes with a non-ASCII teacher tag
+
 ### ====== SETTINGS ====== ###
 # All numbers below are PLACEHOLDERS.  Set them per institution.
 LEVELING = False               # True: apply cutlines, False: every Status is "PENDING"
 MIN_TESTS = 5                  # Minimum test dates per track to be included (< this = omitted)
 START_CUTOFF = None            # e.g. datetime(2026, 1, 26): students whose first score is on or
                                # after this date are excluded.  None disables the filter.
-JU2_WEIGHTS = {"E": 0.6, "K": 0.4}  # Track weights for the combined total of two-track students
+TRACK_WEIGHTS = {TRACK_1: 0.6, TRACK_2: 0.4}  # Track weights for the combined total of two-track students
 PARTICIP_WEIGHT = 0.1          # Weight of the participation column in each track total
 ACADEMIC_WEIGHT = 0.9          # Weight of the pooled academic scores in each track total
 PARTICIP_COL = "Particip"      # Header of the participation column (if present)
 # Placeholder cutlines: total average >= value -> that level; below Lv4 -> "P".
 # "ju2" (주2) = enrolled in both tracks (twice a week); "ju1" (주1) = one track only.
 LV_CUTLINES = {
-    "ju2":   {2: 80, 3: 70, 4: 60},  # both tracks, weighted combined total
-    "E_ju1": {2: 80, 3: 70, 4: 60},  # E-only students
-    "K_ju1": {2: 80, 3: 70, 4: 60},  # K-only students
+    "ju2":        {2: 80, 3: 70, 4: 60},  # both tracks, weighted combined total
+    "track1_ju1": {2: 80, 3: 70, 4: 60},  # Track 1-only students
+    "track2_ju1": {2: 80, 3: 70, 4: 60},  # Track 2-only students
 }
 ### ======================== ###
 
 META_COLS = {"반명", "원생명", "시험일"}  # Non-subject columns in the CSV
+# Track -> cutline set for single-track students
+TRACK_CUTLINE_KEY = {TRACK_1: "track1_ju1", TRACK_2: "track2_ju1"}
 
 
 def round2(value):
@@ -66,8 +74,8 @@ def round2(value):
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-def is_e_class(class_name):
-    """E track if the name starts with [E] or the parenthesised teacher tag is ASCII."""
+def is_track1_class(class_name):
+    """Track 1 if the name starts with [E] or the parenthesised teacher tag is ASCII."""
     if class_name.startswith("[E]"):
         return True
     teacher = re.search(r"\(([^)]+)\)", class_name)
@@ -120,9 +128,10 @@ def dedup_rows(rows):
 
 
 def get_level(name, class_name, class_type):
-    """Current level for one track (E or K).
+    """Current level for one track (TRACK_1 or TRACK_2).
 
     Override priority: E#K# / K#E# > standalone E# / K# > L# > (P) > class code digit.
+    In the name tags, ``E`` refers to Track 1 and ``K`` to Track 2.
     """
     m = re.search(r"G\d+-(\d)", class_name)
     class_level = int(m.group(1)) if m else ""
@@ -130,16 +139,16 @@ def get_level(name, class_name, class_type):
     ek_match = re.search(r"E(\d)K(\d)", name)
     ke_match = re.search(r"K(\d)E(\d)", name)
     if ek_match:
-        return int(ek_match.group(1)) if class_type == "E" else int(ek_match.group(2))
+        return int(ek_match.group(1)) if class_type == TRACK_1 else int(ek_match.group(2))
     if ke_match:
-        return int(ke_match.group(2)) if class_type == "E" else int(ke_match.group(1))
+        return int(ke_match.group(2)) if class_type == TRACK_1 else int(ke_match.group(1))
 
     e_match = re.search(r"E(\d)", name)
-    if e_match and class_type == "E":
+    if e_match and class_type == TRACK_1:
         return int(e_match.group(1))
 
     k_match = re.search(r"K(\d)", name)
-    if k_match and class_type == "K":
+    if k_match and class_type == TRACK_2:
         return int(k_match.group(1))
 
     l_match = re.search(r"L(\d)", name)
@@ -244,7 +253,7 @@ def write_duplicate_report(all_duplicates, out_dir):
 
 def main(argv=None):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    parser = argparse.ArgumentParser(description="Summarise grade-export CSVs (grade 6, E/K tracks).")
+    parser = argparse.ArgumentParser(description="Summarise grade-export CSVs (grade 6, Track 1 / Track 2).")
     parser.add_argument("--csv-dir", default=os.path.join(script_dir, "CSV"),
                         help="directory containing the input *.csv files (default: CSV/ next to this script)")
     parser.add_argument("--out-dir", default=script_dir,
@@ -257,7 +266,7 @@ def main(argv=None):
         return 1
     os.makedirs(args.out_dir, exist_ok=True)
 
-    # Per student per track: scores, dates, latest class.  key: (name, "E" | "K")
+    # Per student per track: scores, dates, latest class.  key: (name, TRACK_1 | TRACK_2)
     scores_by_type = defaultdict(lambda: defaultdict(list))
     dates_by_type = defaultdict(set)
     latest_class_by_type = {}
@@ -291,7 +300,7 @@ def main(argv=None):
             if not name:
                 continue
 
-            ct = "E" if is_e_class(class_name) else "K"
+            ct = TRACK_1 if is_track1_class(class_name) else TRACK_2
             key = (name, ct)
 
             has_any_score = False
@@ -335,7 +344,7 @@ def main(argv=None):
     summary = []
     for name in student_scores:
         class_types = []
-        for ct in ["E", "K"]:
+        for ct in [TRACK_1, TRACK_2]:
             key = (name, ct)
             if key in dates_by_type and len(dates_by_type[key]) >= MIN_TESTS:
                 class_types.append(ct)
@@ -354,26 +363,26 @@ def main(argv=None):
         display_name = display_name.replace("*", "").strip()
 
         if ju == 2:
-            # Participation weighting per track first, then E/K weights on top
-            e_key, k_key = (name, "E"), (name, "K")
-            _, e_class = latest_class_by_type[e_key]
-            _, k_class = latest_class_by_type[k_key]
-            class_display = f"{e_class} / {k_class}"
-            e_dates = len(dates_by_type[e_key])
-            k_dates = len(dates_by_type[k_key])
-            test_count = f"E{e_dates}/K{k_dates}"
+            # Participation weighting per track first, then the track weights on top
+            t1_key, t2_key = (name, TRACK_1), (name, TRACK_2)
+            _, t1_class = latest_class_by_type[t1_key]
+            _, t2_class = latest_class_by_type[t2_key]
+            class_display = f"{t1_class} / {t2_class}"
+            t1_dates = len(dates_by_type[t1_key])
+            t2_dates = len(dates_by_type[t2_key])
+            test_count = f"{TRACK_1}: {t1_dates} / {TRACK_2}: {t2_dates}"
 
-            e_avgs, e_total = calc_avgs(scores_by_type[e_key], subject_cols)
-            k_avgs, k_total = calc_avgs(scores_by_type[k_key], subject_cols)
+            t1_avgs, t1_total = calc_avgs(scores_by_type[t1_key], subject_cols)
+            t2_avgs, t2_total = calc_avgs(scores_by_type[t2_key], subject_cols)
 
-            weighted_total = round2(e_total * JU2_WEIGHTS["E"] + k_total * JU2_WEIGHTS["K"])
-            level = get_level(name, e_class, "E")
+            weighted_total = round2(t1_total * TRACK_WEIGHTS[TRACK_1] + t2_total * TRACK_WEIGHTS[TRACK_2])
+            level = get_level(name, t1_class, TRACK_1)
             status = get_status(level, weighted_total, "ju2")
 
             # Subject averages: simple mean of the two track averages where both exist
             subject_avgs = {}
             for col in subject_cols:
-                vals = [a[col] for a in (e_avgs, k_avgs) if a.get(col, "") != ""]
+                vals = [a[col] for a in (t1_avgs, t2_avgs) if a.get(col, "") != ""]
                 subject_avgs[col] = round2(sum(vals) / len(vals)) if vals else ""
 
             summary.append({
@@ -383,8 +392,8 @@ def main(argv=None):
                 "Status": status,
                 "주": ju,
                 **subject_avgs,
-                "E Average": e_total,
-                "K Average": k_total,
+                f"{TRACK_1} Average": t1_total,
+                f"{TRACK_2} Average": t2_total,
                 "Total Average": weighted_total,
                 "Test Count": test_count,
             })
@@ -395,7 +404,7 @@ def main(argv=None):
             level = get_level(name, latest_class, ct)
             num_dates = len(dates_by_type[key])
             subject_avgs, total_avg = calc_avgs(scores_by_type[key], subject_cols)
-            status = get_status(level, total_avg, f"{ct}_ju1")
+            status = get_status(level, total_avg, TRACK_CUTLINE_KEY[ct])
 
             summary.append({
                 "반명": latest_class,
@@ -404,23 +413,23 @@ def main(argv=None):
                 "Status": status,
                 "주": ju,
                 **subject_avgs,
-                "E Average": "",
-                "K Average": "",
+                f"{TRACK_1} Average": "",
+                f"{TRACK_2} Average": "",
                 "Total Average": total_avg,
                 "Test Count": num_dates,
             })
 
-    # Sort: two-track first, then E before K, then total average descending
+    # Sort: two-track first, then Track 1 before Track 2, then total average descending
     def class_type_key(row):
         if row["주"] == 2:
             return 0
-        return 0 if is_e_class(row["반명"]) else 1
+        return 0 if is_track1_class(row["반명"]) else 1
 
     summary.sort(key=lambda r: (r["주"], class_type_key(r), -r["Total Average"]))
 
     ju2_rows = [r for r in summary if r["주"] == 2]
-    ju1_e_rows = [r for r in summary if r["주"] == 1 and is_e_class(r["반명"])]
-    ju1_k_rows = [r for r in summary if r["주"] == 1 and not is_e_class(r["반명"])]
+    ju1_t1_rows = [r for r in summary if r["주"] == 1 and is_track1_class(r["반명"])]
+    ju1_t2_rows = [r for r in summary if r["주"] == 1 and not is_track1_class(r["반명"])]
 
     if len(input_files) == 1:
         base_name = os.path.splitext(os.path.basename(input_files[0]))[0]
@@ -429,7 +438,7 @@ def main(argv=None):
     safe_name = re.sub(r'[<>:"/\\|?*]', "_", base_name)
     output_file = os.path.join(args.out_dir, f"{safe_name}_summary.csv")
 
-    output_cols = ["반명", "원생명", "Level", "Status", "주", "Test Count"] + subject_cols + ["E Average", "K Average", "Total Average"]
+    output_cols = ["반명", "원생명", "Level", "Status", "주", "Test Count"] + subject_cols + [f"{TRACK_1} Average", f"{TRACK_2} Average", "Total Average"]
     empty_row = {col: "" for col in output_cols}
 
     with open(output_file, "w", encoding="utf-8-sig", newline="") as f:
@@ -440,13 +449,13 @@ def main(argv=None):
             writer.writerow({**empty_row, "반명": f"=== 주2 ({len(ju2_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['ju2'])}"})
             writer.writerows(ju2_rows)
 
-        if ju1_e_rows:
-            writer.writerow({**empty_row, "반명": f"=== 주1 E ({len(ju1_e_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['E_ju1'])}"})
-            writer.writerows(ju1_e_rows)
+        if ju1_t1_rows:
+            writer.writerow({**empty_row, "반명": f"=== 주1 {TRACK_1} ({len(ju1_t1_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['track1_ju1'])}"})
+            writer.writerows(ju1_t1_rows)
 
-        if ju1_k_rows:
-            writer.writerow({**empty_row, "반명": f"=== 주1 K ({len(ju1_k_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['K_ju1'])}"})
-            writer.writerows(ju1_k_rows)
+        if ju1_t2_rows:
+            writer.writerow({**empty_row, "반명": f"=== 주1 {TRACK_2} ({len(ju1_t2_rows)}명) === Cutline: {cutline_str(LV_CUTLINES['track2_ju1'])}"})
+            writer.writerows(ju1_t2_rows)
 
     print(f"Done. {len(summary)} students written to {os.path.basename(output_file)}")
 
